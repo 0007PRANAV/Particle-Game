@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Particle Universe — Hand Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;600&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { overflow:hidden; background:#000; font-family:'Outfit',sans-serif; }
+#c { position:fixed; inset:0; display:block; }
+
+#pip {
+  position:fixed; top:14px; right:14px;
+  width:180px; height:126px;
+  border-radius:12px; overflow:hidden;
+  border:1px solid rgba(255,255,255,0.15);
+  box-shadow:0 6px 24px rgba(0,0,0,0.8);
+  z-index:20; background:#070714;
+}
+#pip video  { width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block; }
+#pip canvas { position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1); }
+
+#status {
+  position:fixed; top:14px; left:50%; transform:translateX(-50%);
+  background:rgba(6,6,18,0.85); backdrop-filter:blur(18px);
+  border:1px solid rgba(255,255,255,0.09);
+  border-radius:999px; padding:7px 20px;
+  color:rgba(255,255,255,0.88); font-size:12px; font-weight:300;
+  letter-spacing:0.06em; z-index:30;
+  display:flex; align-items:center; gap:8px; white-space:nowrap;
+}
+#sd { width:7px;height:7px;border-radius:50%;background:#444;flex-shrink:0;transition:background .4s; }
+#sd.ok   { background:#00ffaa;box-shadow:0 0 7px #00ffaa88; }
+#sd.warn { background:#ffbb00; }
+
+#glabel {
+  position:fixed; top:54px; left:50%; transform:translateX(-50%);
+  font-size:12px; font-weight:300; letter-spacing:.14em;
+  color:rgba(255,255,255,.5); z-index:30; pointer-events:none;
+  text-transform:uppercase; white-space:nowrap;
+}
+
+/* Cursor rings — one per hand */
+.ring {
+  position:fixed; pointer-events:none; z-index:50;
+  width:40px; height:40px; border-radius:50%;
+  border:2px solid rgba(0,255,170,.8);
+  transform:translate(-50%,-50%) scale(0);
+  transition:transform .1s ease, width .12s, height .12s, border-color .15s, box-shadow .15s;
+  box-shadow:0 0 14px rgba(0,255,170,.3);
+}
+.ring.show { transform:translate(-50%,-50%) scale(1); }
+.ring.pinch { border-color:rgba(80,180,255,.9);box-shadow:0 0 18px rgba(80,180,255,.5);width:18px;height:18px; }
+.ring.fist  { border-color:rgba(255,70,70,.9); box-shadow:0 0 22px rgba(255,70,70,.5); width:58px;height:58px; }
+.ring.open  { border-color:rgba(255,200,0,.9); box-shadow:0 0 22px rgba(255,200,0,.5); width:54px;height:54px; }
+.ring.peace { border-color:rgba(160,80,255,.9);box-shadow:0 0 18px rgba(160,80,255,.5); }
+.ring.point { border-color:rgba(0,255,170,.9); box-shadow:0 0 14px rgba(0,255,170,.4); }
+
+/* Zoom bar */
+#zbar {
+  position:fixed; right:12px; top:50%; transform:translateY(-50%);
+  width:3px; height:100px;
+  background:rgba(255,255,255,.06); border-radius:99px; z-index:20; overflow:hidden;
+}
+#zfill { position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,#00ffaa,#00b8ff);border-radius:99px;transition:height .08s; }
+
+/* Legend */
+#legend {
+  position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+  display:flex; gap:8px; flex-wrap:wrap; justify-content:center;
+  z-index:20; transition:opacity 1.5s;
+}
+#legend.fade { opacity:0; }
+.leg {
+  background:rgba(6,6,18,.72); backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:999px; padding:5px 12px 5px 9px;
+  color:rgba(255,255,255,.65); font-size:11px; font-weight:300;
+  display:flex; align-items:center; gap:6px;
+}
+.leg span { font-size:13px; }
+
+/* Permission overlay */
+#perm {
+  position:fixed; inset:0;
+  background:radial-gradient(ellipse at center,#06061a 0%,#000 100%);
+  z-index:100; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:16px; color:#fff;
+}
+#perm h2 {
+  font-size:28px; font-weight:600;
+  background:linear-gradient(135deg,#00ffaa,#00b8ff,#a050ff);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+}
+#perm p { color:rgba(255,255,255,.48); font-size:13.5px; max-width:280px; text-align:center; line-height:1.65; }
+.gpreview { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; max-width:360px; margin-top:4px; }
+.gp {
+  background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
+  border-radius:10px; padding:9px 12px; text-align:center;
+  font-size:11px; color:rgba(255,255,255,.52); min-width:72px;
+}
+.gp .ic { font-size:22px; display:block; margin-bottom:4px; }
+#pbtn {
+  margin-top:6px;
+  background:linear-gradient(135deg,#00ffaa,#00b8ff);
+  border:none; border-radius:999px;
+  padding:13px 40px; font-size:14.5px; font-weight:600;
+  font-family:'Outfit',sans-serif; color:#020310; cursor:pointer;
+  transition:transform .2s, box-shadow .2s;
+  box-shadow:0 6px 22px rgba(0,255,170,.3);
+}
+#pbtn:hover { transform:scale(1.05) translateY(-2px);box-shadow:0 12px 30px rgba(0,180,255,.45); }
+.hicon { font-size:54px; animation:float 3s infinite ease-in-out; }
+@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-11px)} }
+</style>
+</head>
+<body>
+
+<!-- Permission -->
+<div id="perm">
+  <div class="hicon">🖐️</div>
+  <h2>Particle Universe</h2>
+  <p>Control thousands of particles with both hands. Nothing is recorded.</p>
+  <div class="gpreview">
+    <div class="gp"><span class="ic">☝️</span>Point<br>Orbit</div>
+    <div class="gp"><span class="ic">🤌</span>Pinch<br>Zoom</div>
+    <div class="gp"><span class="ic">✊</span>Fist<br>Explode</div>
+    <div class="gp"><span class="ic">✌️</span>Peace<br>Morph</div>
+    <div class="gp"><span class="ic">🖐️</span>Open<br>Scatter</div>
+  </div>
+  <button id="pbtn">Enable Camera</button>
+</div>
+
+<canvas id="c"></canvas>
+<div id="status"><div id="sd"></div><span id="stxt">Ready</span></div>
+<div id="glabel"></div>
+
+<div id="pip">
+  <video id="vid" autoplay playsinline muted></video>
+  <canvas id="oc"></canvas>
+</div>
+
+<!-- Two cursor rings, one per hand -->
+<div class="ring" id="ring0"></div>
+<div class="ring" id="ring1"></div>
+
+<div id="zbar"><div id="zfill" style="height:35%"></div></div>
+
+<div id="legend">
+  <div class="leg"><span>☝️</span>Point → orbit</div>
+  <div class="leg"><span>🤌</span>Pinch+drag → zoom</div>
+  <div class="leg"><span>✊</span>Fist → explode</div>
+  <div class="leg"><span>✌️</span>Peace → morph shapes</div>
+  <div class="leg"><span>🖐️</span>Open hand → scatter</div>
+  <div class="leg"><span>🤝</span>Two hands → warp</div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  CANVAS 2D PARTICLE RENDERER  (no Three.js = no lag)
+//  GPU-friendly: we only touch JS arrays, canvas does blending
+// ════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+let W = canvas.width  = innerWidth;
+let H = canvas.height = innerHeight;
+
+window.addEventListener('resize', () => {
+  W = canvas.width  = innerWidth;
+  H = canvas.height = innerHeight;
+});
+
+// ── PARTICLE POOL ──────────────────────────────────────
+const N = 6000; // Enough for beauty, fast enough for 60fps
+
+// Typed arrays — fast
+const px  = new Float32Array(N); // position x
+const py  = new Float32Array(N); // position y
+const pz  = new Float32Array(N); // position z (for perspective)
+const tx  = new Float32Array(N); // target x
+const ty  = new Float32Array(N); // target y
+const tz  = new Float32Array(N); // target z
+const vx  = new Float32Array(N); // velocity x (for explode)
+const vy  = new Float32Array(N); // velocity y
+const vz  = new Float32Array(N); // velocity z
+const seed= new Float32Array(N); // per-particle random [0,1]
+const hue = new Float32Array(N); // current hue
+
+for (let i = 0; i < N; i++) {
+  // Start scattered in a sphere
+  const theta = Math.random()*Math.PI*2;
+  const phi   = Math.acos(2*Math.random()-1);
+  const r     = 150 + Math.random()*50;
+  px[i] = r*Math.sin(phi)*Math.cos(theta);
+  py[i] = r*Math.sin(phi)*Math.sin(theta);
+  pz[i] = r*Math.cos(phi);
+  seed[i]= Math.random();
+  hue[i] = Math.random();
+}
+
+// ── CAMERA ─────────────────────────────────────────────
+let camTheta  = 0.4;   // horizontal angle
+let camPhi    = 1.3;   // vertical angle
+let camDist   = 420;   // distance → controls zoom (perspective projection)
+let tDist     = 420;   // smooth target
+let velTheta  = 0.004;
+let velPhi    = 0;
+const DAMP    = 0.91;
+const DIST_MIN= 150;
+const DIST_MAX= 900;
+
+// Project 3D → 2D with perspective
+function project(x3, y3, z3) {
+  // Rotate by camera angles
+  const cosT = Math.cos(camTheta), sinT = Math.sin(camTheta);
+  const cosP = Math.cos(camPhi),   sinP = Math.sin(camPhi);
+
+  // Rotate around Y axis (theta)
+  const rx = x3*cosT - z3*sinT;
+  const ry = y3;
+  const rz = x3*sinT + z3*cosT;
+
+  // Rotate around X axis (phi)
+  const fx = rx;
+  const fy = ry*cosP - rz*sinP;
+  const fz = ry*sinP + rz*cosP;
+
+  const fov   = 500;
+  const depth = fz + camDist;
+  if (depth < 1) return null;
+  const scale = fov / depth;
+  return {
+    sx: W/2 + fx*scale,
+    sy: H/2 - fy*scale,
+    scale
+  };
+}
+
+// ── GESTURE STATE ──────────────────────────────────────
+// Stores data for up to 2 hands independently
+const hands = [{}, {}];
+const G = {
+  // Active gestures per hand slot
+  h0: 'none', h1: 'none',
+  // Processed control values
+  explode: 0,
+  scatter: 0,
+  morph:   0,   // 0-1
+  // Orbit deltas (accumulated from pointing hand)
+  orbitActive: false,
+  // Zoom (accumulated from pinching hand)
+  zoomActive: false,
+  // Two-hand warp
+  warp: 0,
+  handCount: 0,
+};
+
+// ── SHAPE TARGETS ──────────────────────────────────────
+// Returns [x,y,z] for particle i in shape, given time t and explode scale em
+function shapeSphere(i, t, em) {
+  const phi   = Math.acos(-1 + 2*i/N);
+  const theta = Math.sqrt(N*Math.PI)*phi;
+  const r     = (120 + Math.sin(t + seed[i]*Math.PI*4)*18)*em;
+  return [r*Math.cos(theta)*Math.sin(phi), r*Math.sin(theta)*Math.sin(phi), r*Math.cos(phi)];
+}
+function shapeTorus(i, t, em) {
+  const ratio = i/N;
+  const ta    = ratio*Math.PI*2;
+  const pa    = ratio*Math.PI*150 + t*0.8;
+  const R=130*em, r=38*em;
+  return [(R+r*Math.cos(pa))*Math.cos(ta), (R+r*Math.cos(pa))*Math.sin(ta), r*Math.sin(pa)];
+}
+function shapeSpiral(i, t, em) {
+  const ratio = i/N;
+  const a     = ratio*Math.PI*32 + t*0.6;
+  const r     = ratio*160*em;
+  return [Math.cos(a)*r, Math.sin(a)*r, (ratio-.5)*220*em];
+}
+function shapeKnot(i, t, em) {
+  const u = (i/N)*Math.PI*4 + t*0.35;
+  const s = 70*em;
+  return [(Math.sin(u)+2*Math.sin(2*u))*s, (Math.cos(u)-2*Math.cos(2*u))*s, -Math.sin(3*u)*s];
+}
+
+// ── HSL string cache ───────────────────────────────────
+// Pre-cache color strings to avoid string alloc each frame
+const COLOR_CACHE_SIZE = 360;
+const colorCache = [];
+for (let h=0; h<COLOR_CACHE_SIZE; h++) {
+  colorCache.push(`hsl(${h},90%,60%)`);
+}
+function getColor(h01) {
+  return colorCache[Math.round(((h01%1+1)%1)*359)|0];
+}
+
+// ── RENDER LOOP ────────────────────────────────────────
+let lastTime = 0;
+let frameHue = 0;
+let explodeVelocities = false;
+
+function render(ts) {
+  requestAnimationFrame(render);
+
+  const dt  = Math.min((ts - lastTime)/1000, 0.05); // cap dt so no spiral on tab switch
+  lastTime  = ts;
+  const t   = ts*0.001;
+
+  // Camera inertia
+  camTheta += velTheta;
+  camPhi   += velPhi;
+  velTheta *= DAMP;
+  velPhi   *= DAMP;
+  camPhi    = Math.max(0.2, Math.min(Math.PI-0.2, camPhi));
+  tDist     = Math.max(DIST_MIN, Math.min(DIST_MAX, tDist));
+  camDist  += (tDist - camDist) * 0.09;
+
+  // Zoom bar
+  const zp = 1 - (camDist-DIST_MIN)/(DIST_MAX-DIST_MIN);
+  document.getElementById('zfill').style.height = Math.round(zp*100)+'%';
+
+  // Explode multiplier
+  const em = 1 + G.explode*2.5;
+
+  // Morph weights
+  const m = G.morph;
+  let wS=1, wT=0, wSp=0, wK=0;
+  if      (m < .33) { const f=m/.33;        wS=1-f; wT=f; }
+  else if (m < .66) { const f=(m-.33)/.33;  wT=1-f; wSp=f; }
+  else              { const f=(m-.66)/.34;  wSp=1-f; wK=f; }
+
+  const warp = 1 + G.warp*2;
+
+  // Decay
+  G.explode = Math.max(0, G.explode - dt*0.8);
+  G.scatter = Math.max(0, G.scatter - dt*0.6);
+
+  // Hue drift
+  frameHue = (frameHue + dt*0.04) % 1;
+
+  // Clear
+  ctx.fillStyle = 'rgba(0,0,0,0.18)'; // trail effect
+  ctx.fillRect(0,0,W,H);
+
+  // Update + draw each particle
+  for (let i = 0; i < N; i++) {
+    const s = seed[i];
+    const [sx,sy,sz]   = shapeSphere(i, t, em*warp);
+    const [tox,toy,toz]= shapeTorus(i, t, em);
+    const [spx,spy,spz]= shapeSpiral(i, t, em);
+    const [kx,ky,kz]   = shapeKnot(i, t, em);
+
+    // Scatter offset: sinusoidal per-particle noise
+    const scX = G.scatter>0.005 ? Math.sin(s*400+t*2)*280*G.scatter : 0;
+    const scY = G.scatter>0.005 ? Math.cos(s*400+t*1.7)*280*G.scatter : 0;
+    const scZ = G.scatter>0.005 ? Math.sin(s*600+t*2.3)*280*G.scatter : 0;
+
+    tx[i] = sx*wS + tox*wT + spx*wSp + kx*wK + scX;
+    ty[i] = sy*wS + toy*wT + spy*wSp + ky*wK + scY;
+    tz[i] = sz*wS + toz*wT + spz*wSp + kz*wK + scZ;
+
+    // Lerp speed: snappier during gestures
+    const ls = 0.07 + G.explode*0.12 + G.scatter*0.09;
+    px[i] += (tx[i]-px[i])*ls;
+    py[i] += (ty[i]-py[i])*ls;
+    pz[i] += (tz[i]-pz[i])*ls;
+
+    // Project
+    const proj = project(px[i], py[i], pz[i]);
+    if (!proj || proj.sx < -20 || proj.sx > W+20 || proj.sy < -20 || proj.sy > H+20) continue;
+
+    // Size based on depth
+    const sz2 = Math.max(0.5, Math.min(4, proj.scale*1.2));
+
+    // Color
+    let h;
+    const g0 = G.h0, g1 = G.h1;
+    const anyFist  = g0==='fist'  || g1==='fist';
+    const anyOpen  = g0==='open'  || g1==='open';
+    const anyPeace = g0==='peace' || g1==='peace';
+    const anyPinch = g0==='pinch' || g1==='pinch';
+
+    if (anyFist)       h = (0.02 + s*0.08 + Math.sin(t*3+s*20)*0.03 + 1) % 1;
+    else if (anyOpen)  h = (0.11 + Math.sin(t+s*5)*0.04 + 1) % 1;
+    else if (anyPeace) h = (0.73 + s*0.06 + Math.sin(t+s*8)*0.04 + 1) % 1;
+    else if (anyPinch) h = (0.57 + Math.sin(t*0.5+s*4)*0.07 + 1) % 1;
+    else               h = (frameHue + s*0.4 + Math.sin(t*0.3+s*6)*0.1 + 1) % 1;
+
+    hue[i] += (h - hue[i]) * 0.08; // smooth hue transition
+
+    ctx.beginPath();
+    ctx.arc(proj.sx, proj.sy, sz2, 0, Math.PI*2);
+    ctx.fillStyle = getColor(hue[i]);
+    ctx.fill();
+  }
+}
+requestAnimationFrame(render);
+
+// ── GESTURE CLASSIFIER ─────────────────────────────────
+// Uses PIP (knuckle) vs TIP comparison for reliable curl detection
+// Works for BOTH left and right hands regardless of handedness label
+function dist2D(a, b) { return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function fingerExtended(tip, pip, mcp) {
+  // True if tip is further from wrist than pip (finger is straight)
+  // Using distance from wrist (lm[0]) approach is more reliable than raw Y
+  // But since wrist isn't passed, use: tip above pip in Y AND away from MCP
+  const straightY = (pip.y - tip.y) > 0.03;  // tip higher than pip
+  return straightY;
+}
+
+function classifyHand(lm) {
+  // lm[0]=wrist, [4]=thumb tip, [8]=index tip, [6]=index pip,
+  // [12]=middle tip, [10]=middle pip, [16]=ring tip, [14]=ring pip,
+  // [20]=pinky tip, [18]=pinky pip
+
+  const pd = dist2D(lm[4], lm[8]); // pinch distance
+
+  const iExt = fingerExtended(lm[8],  lm[6],  lm[5]);
+  const mExt = fingerExtended(lm[12], lm[10], lm[9]);
+  const rExt = fingerExtended(lm[16], lm[14], lm[13]);
+  const pExt = fingerExtended(lm[20], lm[18], lm[17]);
+
+  if (pd < 0.07)                         return 'pinch';
+  if (!iExt && !mExt && !rExt && !pExt) return 'fist';
+  if ( iExt &&  mExt &&  rExt &&  pExt) return 'open';
+  if ( iExt &&  mExt && !rExt && !pExt) return 'peace';
+  if ( iExt && !mExt && !rExt && !pExt) return 'point';
+  if ( iExt && !mExt && !rExt &&  pExt) return 'rock';
+  return 'neutral';
+}
+
+// ── HAND STATE PER SLOT ─────────────────────────────────
+const hState = [
+  { prevTipX:0.5, prevTipY:0.5, prevPD:0, pinchLock:false },
+  { prevTipX:0.5, prevTipY:0.5, prevPD:0, pinchLock:false },
+];
+
+// ── MEDIAPIPE RESULT HANDLER ──────────────────────────
+const oc   = document.getElementById('oc');
+const octx = oc.getContext('2d');
+const rings = [document.getElementById('ring0'), document.getElementById('ring1')];
+const glabel = document.getElementById('glabel');
+
+function setRing(idx, x, y, type) {
+  const r = rings[idx];
+  r.style.left = (x*W)+'px';
+  r.style.top  = (y*H)+'px';
+  r.className = type ? 'ring show '+type : 'ring show';
+}
+function hideRing(idx) { rings[idx].className='ring'; }
+
+let labelTimer;
+function showLabel(txt) {
+  glabel.textContent = txt;
+  clearTimeout(labelTimer);
+  labelTimer = setTimeout(()=>{ glabel.textContent=''; }, 1200);
+}
+
+function onHandResults(results) {
+  // Draw skeleton on PiP
+  oc.width  = oc.clientWidth;
+  oc.height = oc.clientHeight;
+  octx.clearRect(0, 0, oc.width, oc.height);
+
+  G.handCount = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+
+  // Reset gesture labels
+  G.h0 = 'none'; G.h1 = 'none';
+
+  if (!G.handCount) {
+    hideRing(0); hideRing(1);
+    velTheta = velTheta || 0.004;
+    G.explode = Math.max(0, G.explode-0.02);
+    G.scatter = Math.max(0, G.scatter-0.02);
+    return;
+  }
+
+  resetLegend();
+
+  // Draw all hand skeletons
+  results.multiHandLandmarks.forEach((lm, idx) => {
+    if (window.drawConnectors && window.HAND_CONNECTIONS) {
+      const col = idx===0 ? 'rgba(0,255,170,0.55)' : 'rgba(100,160,255,0.55)';
+      window.drawConnectors(octx, lm, window.HAND_CONNECTIONS, { color:col, lineWidth:1.5 });
+      window.drawLandmarks(octx, lm, { color:col.replace('.55','.95'), lineWidth:1, radius:2 });
+    }
+  });
+
+  // Process ALL hands (up to 2)
+  const labels = [];
+
+  results.multiHandLandmarks.forEach((lm, hi) => {
+    if (hi > 1) return; // only handle 2 hands max
+
+    const hs  = hState[hi];
+    const gest = classifyHand(lm);
+
+    // Mirror X because video is mirrored
+    const tipX  = 1 - lm[8].x;
+    const tipY  = lm[8].y;
+    const thmbX = 1 - lm[4].x;
+    const thmbY = lm[4].y;
+    const wristX = 1 - lm[0].x;
+    const wristY = lm[0].y;
+    const pd    = dist2D(lm[4], lm[8]);
+
+    // Guard against large tracking jumps
+    const dx = tipX - hs.prevTipX;
+    const dy = tipY - hs.prevTipY;
+    const jumped = Math.abs(dx) > 0.20 || Math.abs(dy) > 0.20;
+
+    if (hi===0) G.h0 = gest;
+    else        G.h1 = gest;
+
+    switch (gest) {
+
+      case 'point':
+        if (!jumped) {
+          camTheta -= dx * 5.5;
+          camPhi   += dy * 4.0;
+          velTheta  = 0; velPhi = 0;
+        }
+        setRing(hi, tipX, tipY, 'point');
+        labels.push('☝️ ORBIT');
+        G.explode = Math.max(0, G.explode-0.03);
+        G.scatter = Math.max(0, G.scatter-0.03);
+        break;
+
+      case 'pinch':
+        // ZOOM: accumulate vertical drag of the pinch position
+        // dy > 0 means hand moved down → zoom out (increase dist)
+        // dy < 0 means hand moved up → zoom in (decrease dist)
+        if (!jumped) {
+          tDist += dy * 600;          // primary: drag the pinch hand vertically
+          const dPD = pd - hs.prevPD;
+          tDist += dPD * (-400);       // secondary: opening pinch = zoom in (neg dPD = zoom in)
+        }
+        setRing(hi, thmbX, thmbY, 'pinch');
+        labels.push('🤌 ZOOM ↑↓');
+        G.explode = Math.max(0, G.explode-0.02);
+        G.scatter = Math.max(0, G.scatter-0.02);
+        break;
+
+      case 'fist':
+        G.explode = Math.min(G.explode + 0.08, 1.0);
+        G.scatter = Math.max(0, G.scatter-0.03);
+        setRing(hi, tipX, tipY, 'fist');
+        labels.push('✊ EXPLODE');
+        break;
+
+      case 'open':
+        G.scatter = Math.min(G.scatter + 0.06, 1.0);
+        G.explode = Math.max(0, G.explode-0.03);
+        setRing(hi, tipX, tipY, 'open');
+        labels.push('🖐️ SCATTER');
+        break;
+
+      case 'peace':
+        // Vertical position of index tip maps to morph: top=torus, bottom=spiral/knot
+        G.morph = Math.max(0, Math.min(1, tipY * 1.2));
+        G.explode = Math.max(0, G.explode-0.02);
+        G.scatter = Math.max(0, G.scatter-0.02);
+        setRing(hi, tipX, tipY, 'peace');
+        labels.push('✌️ MORPH '+Math.round((1-tipY)*100)+'%');
+        break;
+
+      case 'rock':
+        G.explode = Math.max(0, G.explode-0.02);
+        G.scatter = Math.max(0, G.scatter-0.02);
+        setRing(hi, tipX, tipY, '');
+        labels.push('🤘 RAINBOW');
+        break;
+
+      default:
+        G.explode = Math.max(0, G.explode-0.02);
+        G.scatter = Math.max(0, G.scatter-0.02);
+        hideRing(hi);
+    }
+
+    hs.prevPD   = pd;
+    hs.prevTipX = tipX;
+    hs.prevTipY = tipY;
+  });
+
+  // Hide unused ring slots
+  if (G.handCount < 2) hideRing(1);
+
+  // Two-hand warp
+  if (G.handCount >= 2) {
+    const lm0 = results.multiHandLandmarks[0];
+    const lm1 = results.multiHandLandmarks[1];
+    const spread = dist2D(lm0[0], lm1[0]);
+    G.warp = Math.max(0, Math.min(1, (spread-0.06)/0.65));
+    labels.push('🤝 WARP '+Math.round(G.warp*100)+'%');
+  } else {
+    G.warp *= 0.92;
+  }
+
+  if (labels.length) showLabel(labels.join('  |  '));
+}
+
+// ── MEDIAPIPE INIT ────────────────────────────────────
+function loadScript(src) {
+  return new Promise((res,rej) => {
+    const s=document.createElement('script');
+    s.src=src; s.onload=res; s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+const dot   = document.getElementById('sd');
+const stxt  = document.getElementById('stxt');
+function setStatus(msg, cls='') { stxt.textContent=msg; dot.className=cls; }
+
+async function initMP() {
+  setStatus('Loading hand tracking…');
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
+
+    const hands = new window.Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.72,
+      minTrackingConfidence: 0.60,
+    });
+    hands.onResults(onHandResults);
+
+    const vid = document.getElementById('vid');
+    const cam = new window.Camera(vid, {
+      onFrame: async () => { await hands.send({ image: vid }); },
+      width: 320, height: 240
+    });
+    await cam.start();
+    setStatus('Hand tracking active — both hands ✓', 'ok');
+  } catch(err) {
+    console.error(err);
+    setStatus('Hand tracking failed — using mouse', 'warn');
+    enableMouse();
+  }
+}
+
+// ── MOUSE FALLBACK ────────────────────────────────────
+function enableMouse() {
+  let dn=false, px=0, py=0;
+  canvas.addEventListener('mousedown', e=>{dn=true;px=e.clientX;py=e.clientY;velTheta=0;});
+  window.addEventListener('mousemove', e=>{
+    if(!dn) return;
+    camTheta -= (e.clientX-px)/W*5;
+    camPhi   += (e.clientY-py)/H*5;
+    px=e.clientX; py=e.clientY;
+  });
+  window.addEventListener('mouseup', ()=>{dn=false; velTheta=0.004;});
+  window.addEventListener('wheel', e=>{tDist+=e.deltaY*0.3;},{passive:true});
+}
+
+// ── LEGEND ────────────────────────────────────────────
+const legend = document.getElementById('legend');
+let legT;
+function resetLegend() {
+  clearTimeout(legT);
+  legend.classList.remove('fade');
+  legT = setTimeout(()=>legend.classList.add('fade'), 2500);
+}
+setTimeout(()=>legend.classList.add('fade'), 5000);
+
+// ── PERMISSION ────────────────────────────────────────
+document.getElementById('pbtn').addEventListener('click', async () => {
+  document.getElementById('perm').style.display='none';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:'user'}});
+    document.getElementById('vid').srcObject = stream;
+    await initMP();
+  } catch(e) {
+    setStatus('Camera denied', 'warn');
+    enableMouse();
+  }
+});
+</script>
+</body>
+</html>
